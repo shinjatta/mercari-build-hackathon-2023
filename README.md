@@ -1,4 +1,4 @@
-# Mini Mercari Web App
+# Mini Mercari Web App @shinjatta
 
 ## Requirements
 
