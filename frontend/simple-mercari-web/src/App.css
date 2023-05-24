@@ -1,25 +1,43 @@
-body {
-  background-color: #222427;
+:root {
+  --alias-color-text-primary-default: #333;
+  --alias-color-background-secondary-default: #f5f5f5;
+  --alias-color-border-primary-default: #ccc;
+  --alias-color-border-primary-highlight: #e5e5e5;
+  --alias-color-background-attention-highlight:#ff6574
 }
 
+
 .MerComponent {
-  background-color: #222427;
   min-height: 8vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: left;
   font-size: calc(10px + 1vmin);
-  color: white;
+  color: black;
 }
 
+/* ----- Inputs ------ */
+
 #MerTextInput {
-  display: block;
-  -webkit-box-flex: 1;
-  flex: 1 1 0%;
-  padding: 16px;
-  color: black;
-  width: 300px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0px;
+  padding: 10px 16px;
+  color: var(--alias-color-text-primary-default);
+  font-weight: normal;
+  font-size: 16px;
+  line-height: 1.4em;
+  background-color: transparent;
+  border: none;
+  border-radius: 4px 0px 0px 4px;
+  outline: none;
+  appearance: none;
+  color: var(--alias-color-text-primary-default);
+  background-color: var(--alias-color-background-secondary-default);
+  border: 1px solid var(--alias-color-border-primary-default);
+  border-radius: 4px;
 }
 
 #MerInputLabel {
@@ -30,35 +48,81 @@ body {
   align-items: flex-start;
 }
 
+/* ----- Buttons ----- */
+
 #MerButton {
-  /* color: var(--alias-color-text-inverse-default); */
-  background-color: #da3e50;
-  color: #222427;
-  font: inherit;
-  transition-timing-function: ease-in-out;
-  transition-duration: 0.1s;
-  display: inline-flex;
-  -webkit-box-align: center;
-  /* align-items: center; */
-  -webkit-box-pack: center;
+  fill: #fff;
+  background-color: #ff333f;
+  color: #fff;
+  font-size: 14px;
+  height: 36px;
+  min-width: 60px;
+  padding: 8px 16px;
   justify-content: center;
-  box-sizing: border-box;
-  width: 100%;
-  margin-top: 5px;
-  margin-bottom: 5px;
-  overflow: hidden;
-  line-height: 1.4em;
-  white-space: nowrap;
-  text-align: center;
-  text-decoration: none;
-  /* vertical-align: middle; */
-  word-break: break-word;
-  border-color: transparent;
-  /* border-style: solid; */
-  /* border-width: 1px; */
-  border-radius: 4px;
+  border: none;
+  appearance: none;
+  font-weight: 900;
+  border: none;
+  outline: none;
   cursor: pointer;
-  transition-property: background-color, color, fill;
+  border-radius: 8%;
+}
+
+#MerButton:hover {
+  fill: #fff;
+  background-color: var(--alias-color-background-attention-highlight);
+  color: #fff;
+  font-size: 14px;
+  height: 36px;
+  min-width: 60px;
+  padding: 8px 16px;
+  justify-content: center;
+  border: none;
+  appearance: none;
+  font-weight: 900;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  border-radius: 8%;
+}
+
+/* ----- Item list ----- */
+
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-gap: 16px;
+  margin: 0 40px;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  border-radius: 4px;
+  color: var(--alias-color-text-primary-default);
+}
+
+.item img {
+  height: 200px;
+  width: 100%;
+  object-fit: cover;
+}
+
+.item p {
+  margin-top: 8px;
+}
+
+.item span {
+  display: block;
+}
+
+div.item:hover{
+  background-color: var(--alias-color-border-primary-highlight);
+  cursor: pointer;
 }
 
 #MerDisableButton {
@@ -103,8 +167,11 @@ body {
   color: white;
 }
 
+/* ----- Listing ------ */
+
 .Listing {
   width: 100%;
+  margin-top: 5%;
 }
 
 .ItemList {
@@ -126,6 +193,26 @@ body {
   justify-content: left;
 }
 
+.AllInputs * {
+  margin: 5px !important;
+}
+
+
+/* ----- Item details ----- */
+/* Creates the two columns */
+.item-container {
+  display: flex;
+  align-items: flex-start;
+}
+
+.image-column {
+  margin-right: 20px; 
+}
+
+.content-column {
+  flex: 1;
+}
+
 .ItemDetail {
   width: 100%;
   display: flex;
@@ -134,6 +221,8 @@ body {
   justify-content: left;
 }
 
+
+/* ----- User profile ----- */
 .UserProfile {
   width: 100%;
   display: flex;

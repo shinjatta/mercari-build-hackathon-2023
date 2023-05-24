@@ -118,7 +118,7 @@ export const Listing: React.FC = () => {
     <MerComponent>
       <div className="Listing">
         <form onSubmit={onSubmit} className="ListingForm">
-          <div>
+          <div className="AllInputs" >
             <input
               type="text"
               name="name"
