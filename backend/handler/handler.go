@@ -313,6 +313,36 @@ func (h *Handler) GetOnSaleItems(c echo.Context) error {
 	return c.JSON(http.StatusOK, res)
 }
 
+func (h *Handler) GetSearchedItems(c echo.Context) error {
+	ctx := c.Request().Context()
+	//TODO: Control possible errors
+	search := c.Param("search")
+
+	items, err := h.ItemRepo.GetSearchedItems(ctx, search)
+	// Not found handling
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, "No items found with this keyword")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err)
+	}
+
+	var res []getOnSaleItemsResponse
+	for _, item := range items {
+		cats, err := h.ItemRepo.GetCategories(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, err)
+		}
+		for _, cat := range cats {
+			if cat.ID == item.CategoryID {
+				res = append(res, getOnSaleItemsResponse{ID: item.ID, Name: item.Name, Price: item.Price, CategoryName: cat.Name})
+			}
+		}
+	}
+
+	return c.JSON(http.StatusOK, res)
+}
+
 func (h *Handler) GetItem(c echo.Context) error {
 	ctx := c.Request().Context()
 
