@@ -3,7 +3,10 @@ package db
 import (
 	"context"
 	"database/sql"
-
+	"net/http"
+  
+  "github.com/labstack/echo/v4"
+  "github.com/pkg/errors"
 	"github.com/978672/mecari-build-hackathon-2023/backend/domain"
 )
 
@@ -25,12 +28,18 @@ func (r *UserDBRepository) AddUser(ctx context.Context, user domain.User) (int64
 	if _, err := r.ExecContext(ctx, "INSERT INTO users (name, password) VALUES (?, ?)", user.Name, user.Password); err != nil {
 		return 0, err
 	}
-	// TODO: if other insert query is executed at the same time, it might return wrong id
-	// http.StatusConflict(409) 既に同じIDがあった場合
-	row := r.QueryRowContext(ctx, "SELECT id FROM users WHERE rowid = LAST_INSERT_ROWID()")
 
+	//If another insert query is executed at the same time, it sends http.StatusConflict
 	var id int64
-	return id, row.Scan(&id)
+	err := r.QueryRowContext(ctx, "SELECT id FROM users WHERE rowid = LAST_INSERT_ROWID()").Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, echo.NewHTTPError(http.StatusConflict, "Conflict: Repeated id")
+		}
+		return 0, err
+	}
+
+	return id, nil
 }
 
 func (r *UserDBRepository) GetUser(ctx context.Context, id int64) (domain.User, error) {
@@ -70,12 +79,18 @@ func (r *ItemDBRepository) AddItem(ctx context.Context, item domain.Item) (domai
 	if _, err := r.ExecContext(ctx, "INSERT INTO items (name, price, description, category_id, seller_id, image, status) VALUES (?, ?, ?, ?, ?, ?, ?)", item.Name, item.Price, item.Description, item.CategoryID, item.UserID, item.Image, item.Status); err != nil {
 		return domain.Item{}, err
 	}
-	// TODO: if other insert query is executed at the same time, it might return wrong id
-	// http.StatusConflict(409) 既に同じIDがあった場合
-	row := r.QueryRowContext(ctx, "SELECT * FROM items WHERE rowid = LAST_INSERT_ROWID()")
 
+	//If another insert query is executed at the same time, it sends http.StatusConflict
 	var res domain.Item
-	return res, row.Scan(&res.ID, &res.Name, &res.Price, &res.Description, &res.CategoryID, &res.UserID, &res.Image, &res.Status, &res.CreatedAt, &res.UpdatedAt)
+	err := r.QueryRowContext(ctx, "SELECT * FROM items WHERE rowid = LAST_INSERT_ROWID()").Scan(&res.ID, &res.Name, &res.Price, &res.Description, &res.CategoryID, &res.UserID, &res.Image, &res.Status, &res.CreatedAt, &res.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Item{}, echo.NewHTTPError(http.StatusConflict, "Conflict: Repeated id")
+		}
+		return domain.Item{}, err
+	}
+
+	return res, nil
 }
 
 func (r *ItemDBRepository) GetItem(ctx context.Context, id int32) (domain.Item, error) {
