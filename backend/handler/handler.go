@@ -72,6 +72,7 @@ type getCategoriesResponse struct {
 }
 
 type sellRequest struct {
+	UserID int64 `json:"user_id"`
 	ItemID int32 `json:"item_id"`
 }
 
@@ -219,16 +220,20 @@ func (h *Handler) AddItem(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
 
+	//Control passing very big file
+	maxSize := int64(1024 * 1024)
+	if file.Size > maxSize {
+		return echo.NewHTTPError(http.StatusBadRequest, "file size is too large")
+	}
+
 	src, err := file.Open()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
 	defer src.Close()
 
-	var dest []byte
-	blob := bytes.NewBuffer(dest)
-	// TODO: pass very big file
-	// http.StatusBadRequest(400)
+	var dest bytes.Buffer
+	blob := &dest
 	if _, err := io.Copy(blob, src); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
@@ -266,6 +271,7 @@ func (h *Handler) Sell(c echo.Context) error {
 	}
 
 	item, err := h.ItemRepo.GetItem(ctx, req.ItemID)
+
 	// Not found handling
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -275,9 +281,21 @@ func (h *Handler) Sell(c echo.Context) error {
 	}
 
 	// TODO: check req.UserID and item.UserID
+	if req.UserID != item.UserID {
+		return echo.NewHTTPError(http.StatusPreconditionFailed, "invalid userID")
+	}
+
 	// http.StatusPreconditionFailed(412)
 	// TODO: only update when status is initial
 	// http.StatusPreconditionFailed(412)
+
+	// Only update the item status if it is in the initial status
+	if item.Status == domain.ItemStatusInitial {
+		if err := h.ItemRepo.UpdateItemStatus(ctx, item.ID, domain.ItemStatusOnSale); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err)
+		}
+	}
+
 	if err := h.ItemRepo.UpdateItemStatus(ctx, item.ID, domain.ItemStatusOnSale); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
@@ -514,6 +532,7 @@ func (h *Handler) Purchase(c echo.Context) error {
 
 	//Update only when item status is on sale
 	item, err := h.ItemRepo.GetItem(ctx, int32(itemID))
+	user, err := h.UserRepo.GetUser(ctx, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "Item not found")
@@ -521,8 +540,14 @@ func (h *Handler) Purchase(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
 
+	// Check if item is on sale
 	if item.Status != domain.ItemStatusOnSale {
 		return echo.NewHTTPError(http.StatusPreconditionFailed, "Item is not available for purchase")
+	}
+
+	// Check if you have enough balance
+	if user.Balance < item.Price {
+		return echo.NewHTTPError(http.StatusBadRequest, "Balance is not enough.")
 	}
 
 	// TODO: when it overflows. The int32 (itemID) here should not be processed normally due to a bug
@@ -538,7 +563,6 @@ func (h *Handler) Purchase(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
 
-	user, err := h.UserRepo.GetUser(ctx, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "User not found")
