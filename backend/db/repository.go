@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strings"
 
+	"github.com/978672/mecari-build-hackathon-2023/backend/domain"
 	"github.com/labstack/echo/v4"
-	"github.com/mercari-build/mecari-build-hackathon-2023/backend/domain"
 	"github.com/pkg/errors"
 )
 
@@ -20,8 +21,33 @@ type UserDBRepository struct {
 	*sql.DB
 }
 
+type CategoryDBRepository struct {
+	DB *sql.DB
+}
+
+type ItemDBRepository struct {
+	*sql.DB
+}
+
+type ItemRepository interface {
+	AddItem(ctx context.Context, item domain.Item) (domain.Item, error)
+	AddCategory(ctx context.Context, category domain.Category) (domain.Category, error)
+	GetItem(ctx context.Context, id int32) (domain.Item, error)
+	GetItemImage(ctx context.Context, id int32) ([]byte, error)
+	GetOnSaleItems(ctx context.Context) ([]domain.Item, error)
+	GetSearchedItems(ctx context.Context, search string) ([]domain.Item, error)
+	GetItemsByUserID(ctx context.Context, userID int64) ([]domain.Item, error)
+	GetCategory(ctx context.Context, id int64) (domain.Category, error)
+	GetCategories(ctx context.Context) ([]domain.Category, error)
+	UpdateItemStatus(ctx context.Context, id int32, status domain.ItemStatus) error
+}
+
 func NewUserRepository(db *sql.DB) UserRepository {
 	return &UserDBRepository{DB: db}
+}
+
+func NewItemRepository(db *sql.DB) *ItemDBRepository {
+	return &ItemDBRepository{DB: db}
 }
 
 func (r *UserDBRepository) AddUser(ctx context.Context, user domain.User) (int64, error) {
@@ -56,24 +82,8 @@ func (r *UserDBRepository) UpdateBalance(ctx context.Context, id int64, balance 
 	return nil
 }
 
-type ItemRepository interface {
-	AddItem(ctx context.Context, item domain.Item) (domain.Item, error)
-	GetItem(ctx context.Context, id int32) (domain.Item, error)
-	GetItemImage(ctx context.Context, id int32) ([]byte, error)
-	GetOnSaleItems(ctx context.Context) ([]domain.Item, error)
-	GetSearchedItems(ctx context.Context, search string) ([]domain.Item, error)
-	GetItemsByUserID(ctx context.Context, userID int64) ([]domain.Item, error)
-	GetCategory(ctx context.Context, id int64) (domain.Category, error)
-	GetCategories(ctx context.Context) ([]domain.Category, error)
-	UpdateItemStatus(ctx context.Context, id int32, status domain.ItemStatus) error
-}
-
-type ItemDBRepository struct {
-	*sql.DB
-}
-
-func NewItemRepository(db *sql.DB) ItemRepository {
-	return &ItemDBRepository{DB: db}
+func NewCategoryDBRepository(db *sql.DB) *CategoryDBRepository {
+	return &CategoryDBRepository{DB: db}
 }
 
 func (r *ItemDBRepository) AddItem(ctx context.Context, item domain.Item) (domain.Item, error) {
@@ -89,6 +99,41 @@ func (r *ItemDBRepository) AddItem(ctx context.Context, item domain.Item) (domai
 			return domain.Item{}, echo.NewHTTPError(http.StatusConflict, "Conflict: Repeated id")
 		}
 		return domain.Item{}, err
+	}
+
+	return res, nil
+}
+
+func (r *CategoryDBRepository) AddCategory(ctx context.Context, category domain.Category) (domain.Category, error) {
+	// Check if the "category" table exists
+	tableExists := false
+	err := r.DB.QueryRowContext(ctx, "SHOW TABLES LIKE 'category'").Scan(&tableExists)
+	if err != nil {
+		return domain.Category{}, err
+	}
+
+	// If the table doesn't exist, create it
+	if !tableExists {
+		_, err = r.DB.ExecContext(ctx, "CREATE TABLE category (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL)")
+		if err != nil {
+			return domain.Category{}, err
+		}
+	}
+
+	// Insert the new category into the "category" table
+	_, err = r.DB.ExecContext(ctx, "INSERT INTO category (name) VALUES (?)", category.Name)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate entry") {
+			return domain.Category{}, echo.NewHTTPError(http.StatusConflict, "Conflict: Repeated category")
+		}
+		return domain.Category{}, err
+	}
+
+	// Retrieve the inserted category with the generated ID
+	var res domain.Category
+	err = r.DB.QueryRowContext(ctx, "SELECT * FROM category WHERE id = LAST_INSERT_ID()").Scan(&res.ID, &res.Name)
+	if err != nil {
+		return domain.Category{}, err
 	}
 
 	return res, nil

@@ -9,13 +9,18 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/978672/mecari-build-hackathon-2023/backend/db"
+	"github.com/978672/mecari-build-hackathon-2023/backend/handler"
+	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v5"
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/mercari-build/mecari-build-hackathon-2023/backend/db"
-	"github.com/mercari-build/mecari-build-hackathon-2023/backend/handler"
 )
+
+type CustomValidator struct {
+	validator *validator.Validate
+}
 
 const (
 	exitOK = iota
@@ -26,9 +31,17 @@ func main() {
 	os.Exit(run(context.Background()))
 }
 
+func (cv *CustomValidator) Validate(i interface{}) error {
+	if err := cv.validator.Struct(i); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return nil
+}
+
 func run(ctx context.Context) int {
 	e := echo.New()
 
+	e.Validator = &CustomValidator{validator: validator.New()}
 	// Middleware
 	e.Use(middleware.Recover())
 
@@ -70,9 +83,9 @@ func run(ctx context.Context) int {
 	defer sqlDB.Close()
 
 	h := handler.Handler{
-		DB:       sqlDB,
-		UserRepo: db.NewUserRepository(sqlDB),
-		ItemRepo: db.NewItemRepository(sqlDB),
+		DB:           sqlDB,
+		UserRepo:     db.NewUserRepository(sqlDB),
+		CategoryRepo: *db.NewCategoryDBRepository(sqlDB),
 	}
 
 	// Routes
@@ -86,6 +99,7 @@ func run(ctx context.Context) int {
 	e.GET("/items/categories", h.GetCategories)
 	e.POST("/register", h.Register)
 	e.POST("/login", h.Login)
+	e.POST("/addcategories", h.AddCategory)
 
 	// Login required
 	l := e.Group("")

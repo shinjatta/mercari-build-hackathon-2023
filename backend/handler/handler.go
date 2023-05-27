@@ -7,13 +7,17 @@ import (
 	"io"
 	"net/http"
 	"os"
+
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/978672/mecari-build-hackathon-2023/backend/db"
+	"github.com/978672/mecari-build-hackathon-2023/backend/domain"
+	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
-	"github.com/mercari-build/mecari-build-hackathon-2023/backend/db"
-	"github.com/mercari-build/mecari-build-hackathon-2023/backend/domain"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -73,6 +77,7 @@ type getCategoriesResponse struct {
 
 type sellRequest struct {
 	ItemID int32 `json:"item_id"`
+	UserID int64 `json:"user_id"`
 }
 
 type addItemRequest struct {
@@ -82,7 +87,16 @@ type addItemRequest struct {
 	Description string `form:"description"`
 }
 
+type addCategoryRequest struct {
+	CategoryID int64  `form:"category_id"`
+	Name       string `form:"name"`
+}
+
 type addItemResponse struct {
+	ID int64 `json:"id"`
+}
+
+type addCategoryResponse struct {
 	ID int64 `json:"id"`
 }
 
@@ -106,9 +120,22 @@ type loginResponse struct {
 }
 
 type Handler struct {
-	DB       *sql.DB
-	UserRepo db.UserRepository
-	ItemRepo db.ItemRepository
+	DB           *sql.DB
+	UserRepo     db.UserRepository
+	ItemRepo     db.ItemRepository
+	CategoryRepo db.CategoryDBRepository
+}
+
+type CustomValidator struct {
+	validator *validator.Validate
+}
+
+func (cv *CustomValidator) Validate(i interface{}) error {
+	if err := cv.validator.Struct(i); err != nil {
+		// Optionally, you could return the error to give each route more control over the status code
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return nil
 }
 
 func GetSecret() string {
@@ -116,6 +143,47 @@ func GetSecret() string {
 		return secret
 	}
 	return "secret-key"
+}
+
+// validateUserID helps to validate UserID
+func validateUserID(userID string) error {
+	// UserID should be alphanumeric with a length between 3 and 20 characters
+	match, _ := regexp.MatchString("^[a-zA-Z0-9]{3,20}$", userID)
+	if !match {
+		return errors.New("Invalid UserID")
+	}
+	return nil
+}
+
+func validateJWTToken(c echo.Context) (string, error) {
+	tokenString := c.Request().Header.Get("Authorization")
+	if tokenString == "" {
+		return "", errors.New("Missing token")
+	}
+
+	// Extract the token value without the "Bearer " prefix
+	tokenValue := strings.TrimPrefix(tokenString, "Bearer ")
+
+	// Parse and validate the token
+	token, err := jwt.Parse(tokenValue, func(token *jwt.Token) (interface{}, error) {
+		return []byte("secret-key"), nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return "", errors.New("Invalid token")
+	}
+
+	// Extract the user ID from the token claims
+	userID, ok := claims["sub"].(string)
+	if !ok {
+		return "", errors.New("Invalid token")
+	}
+
+	return userID, nil
 }
 
 func (h *Handler) Initialize(c echo.Context) error {
@@ -137,10 +205,12 @@ func (h *Handler) AccessLog(c echo.Context) error {
 }
 
 func (h *Handler) Register(c echo.Context) error {
-	// TODO: validation
-	// http.StatusBadRequest(400)
 	req := new(registerRequest)
 	if err := c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err)
+	}
+
+	if err := c.Validate(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err)
 	}
 
@@ -159,12 +229,17 @@ func (h *Handler) Register(c echo.Context) error {
 
 func (h *Handler) Login(c echo.Context) error {
 	ctx := c.Request().Context()
-	// TODO: validation
-	// http.StatusBadRequest(400)
+
 	req := new(loginRequest)
 	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err)
 	}
+
+	if err := c.Validate(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err)
+	}
+
+	//TODO:
 
 	user, err := h.UserRepo.GetUser(ctx, req.UserID)
 	if err != nil {
@@ -201,12 +276,14 @@ func (h *Handler) Login(c echo.Context) error {
 }
 
 func (h *Handler) AddItem(c echo.Context) error {
-	// TODO: validation
-	// http.StatusBadRequest(400)
 	ctx := c.Request().Context()
 
 	req := new(addItemRequest)
 	if err := c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err)
+	}
+
+	if err := c.Validate(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err)
 	}
 
@@ -218,6 +295,11 @@ func (h *Handler) AddItem(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
+	//Control passing very big file
+	maxSize := int64(1024 * 1024)
+	if file.Size > maxSize {
+		return echo.NewHTTPError(http.StatusBadRequest, "file size is too large")
+	}
 
 	src, err := file.Open()
 	if err != nil {
@@ -225,10 +307,9 @@ func (h *Handler) AddItem(c echo.Context) error {
 	}
 	defer src.Close()
 
-	var dest []byte
-	blob := bytes.NewBuffer(dest)
-	// TODO: pass very big file
-	// http.StatusBadRequest(400)
+	var dest bytes.Buffer
+	blob := &dest
+
 	if _, err := io.Copy(blob, src); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
@@ -257,6 +338,32 @@ func (h *Handler) AddItem(c echo.Context) error {
 	return c.JSON(http.StatusOK, addItemResponse{ID: int64(item.ID)})
 }
 
+func (h *Handler) AddCategory(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	req := new(addCategoryRequest)
+	if err := c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err)
+	}
+
+	if err := c.Validate(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err)
+	}
+
+	category := domain.Category{
+		Name: req.Name,
+	}
+
+	createdCategory, err := h.CategoryRepo.AddCategory(ctx, category)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err)
+	}
+
+	return c.JSON(http.StatusOK, addCategoryResponse{
+		ID: createdCategory.ID,
+	})
+}
+
 func (h *Handler) Sell(c echo.Context) error {
 	ctx := c.Request().Context()
 	req := new(sellRequest)
@@ -265,7 +372,7 @@ func (h *Handler) Sell(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err)
 	}
 
-	item, err := h.ItemRepo.GetItem(ctx, req.ItemID)
+	item, err := h.ItemRepo.GetItem(ctx, int32(req.ItemID))
 	// Not found handling
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -274,10 +381,22 @@ func (h *Handler) Sell(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
 
-	// TODO: check req.UserID and item.UserID
-	// http.StatusPreconditionFailed(412)
-	// TODO: only update when status is initial
-	// http.StatusPreconditionFailed(412)
+	// // Check if the request user is the owner of the item
+	// if req.UserID != item.UserID {
+	// 	return echo.NewHTTPError(http.StatusPreconditionFailed, "User is not the owner of the item")
+	// }
+
+	// Only update the item status if it is in the initial status
+	if item.UserID != int64(req.UserID) {
+		return echo.NewHTTPError(http.StatusPreconditionFailed, "that user does not have that item")
+	}
+
+	if item.Status == domain.ItemStatusInitial {
+		if err := h.ItemRepo.UpdateItemStatus(ctx, item.ID, domain.ItemStatusOnSale); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err)
+		}
+	}
+
 	if err := h.ItemRepo.UpdateItemStatus(ctx, item.ID, domain.ItemStatusOnSale); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
@@ -457,6 +576,11 @@ func (h *Handler) AddBalance(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err)
 	}
 
+	// Ensure the balance to be added is not negative
+	if req.Balance < 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid balance value")
+	}
+
 	userID, err := getUserID(c)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, err)
@@ -490,7 +614,7 @@ func (h *Handler) GetBalance(c echo.Context) error {
 	// Not found handling
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, "Not found")
+			return echo.NewHTTPError(http.StatusNotFound, "Not found 5")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
@@ -525,7 +649,7 @@ func (h *Handler) Purchase(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusPreconditionFailed, "Item is not available for purchase")
 	}
 
-	// TODO: when it overflows. The int32 (itemID) here should not be processed normally due to a bug
+	// When it overflows. The int32 (itemID) here should not be processed normally due to a bug
 	if err := h.ItemRepo.UpdateItemStatus(ctx, int32(itemID), domain.ItemStatusSoldOut); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
@@ -565,6 +689,11 @@ func (h *Handler) Purchase(c echo.Context) error {
 	// Make not possible to buy own items. If you buy your own items you get http.StatusPreconditionFailed(412)
 	if item.UserID == userID {
 		return echo.NewHTTPError(http.StatusPreconditionFailed, "Cannot buy your own items")
+	}
+
+	// Make not possible to buy items you don't have money for
+	if item.Price > user.Balance {
+		return echo.NewHTTPError(http.StatusPreconditionFailed, "No enough money")
 	}
 
 	if err := h.UserRepo.UpdateBalance(ctx, userID, user.Balance-item.Price); err != nil {
